@@ -95,7 +95,6 @@ function SectionTitle({ title, subtitle }) {
 
 export default function App() {
   const { auditRuns, tasks } = useAuditData();
-  const hasLiveData = (auditRuns && auditRuns.length > 0) || (tasks && tasks.length > 0);
   const [view, setView] = useState("command"); // command | inbox | respond
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(demo.assignments[0].id);
   const [state, setState] = useState(() => structuredClone(demo));
