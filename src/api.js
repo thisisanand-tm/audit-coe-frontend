@@ -32,3 +32,22 @@ export async function getTasks(params = {}) {
   const data = await res.json();
   return data?.items ?? [];
 }
+
+
+export async function submitTaskResponse(payload) {
+  // Defensive: never throw from this helper. Return { ok, data, error }.
+  try {
+    const res = await fetch(`${API_BASE}/task-responses`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload ?? {}),
+    });
+    const body = await safeJson(res);
+    if (!res.ok) {
+      return { ok: false, error: `task-responses failed (${res.status}): ${JSON.stringify(body)}`, data: body };
+    }
+    return { ok: true, data: body, error: null };
+  } catch (e) {
+    return { ok: false, error: e?.message ?? String(e), data: null };
+  }
+}

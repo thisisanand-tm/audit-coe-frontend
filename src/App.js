@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./index.css";
 import { useAuditData } from "./useAuditData";
+import { submitTaskResponse } from "./api";
 
 const demo = {
   user: { name: "Anand", role: "COE Admin" },
@@ -94,7 +95,23 @@ function SectionTitle({ title, subtitle }) {
 }
 
 export default function App() {
-  const { auditRuns, tasks } = useAuditData();
+  const { auditRuns, tasks, loading, error, refresh } = useAuditData();
+  // -----------------------------------------------------------------
+  // LIVE WRITE PATH (Phase A): minimal UI to POST /task-responses
+  // Defensive rule: never crash the UI; always surface errors.
+  // -----------------------------------------------------------------
+  const [liveTaskId, setLiveTaskId] = useState("");
+  const [liveResponseText, setLiveResponseText] = useState("");
+  const [liveSubmitState, setLiveSubmitState] = useState({ status: "idle", message: "" });
+
+  const hasLiveData = (auditRuns && auditRuns.length > 0) || (tasks && tasks.length > 0);
+  useEffect(() => {
+    // Initialize live task selection once tasks are loaded.
+    if (!liveTaskId && Array.isArray(tasks) && tasks.length > 0) {
+      setLiveTaskId(tasks[0]?.id || "");
+    }
+  }, [tasks, liveTaskId]);
+
   const [view, setView] = useState("command"); // command | inbox | respond
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(demo.assignments[0].id);
   const [state, setState] = useState(() => structuredClone(demo));
@@ -197,6 +214,48 @@ export default function App() {
     });
   }
 
+
+async function submitLiveResponse() {
+  // Pre-flight checks (frontend)
+  try {
+    if (!liveTaskId) {
+      setLiveSubmitState({ status: "error", message: "No live task selected." });
+      return;
+    }
+    const text = (liveResponseText || "").trim();
+    if (!text) {
+      setLiveSubmitState({ status: "error", message: "Response text is empty." });
+      return;
+    }
+
+    setLiveSubmitState({ status: "submitting", message: "Saving…" });
+
+    const result = await submitTaskResponse({
+      task_id: liveTaskId,
+      response_text: text,
+      response_type: "text",
+      // user_id intentionally omitted unless you want to pass it later
+    });
+
+    if (!result || !result.ok) {
+      setLiveSubmitState({ status: "error", message: (result && result.error) || "Save failed." });
+      return;
+    }
+
+    setLiveSubmitState({ status: "success", message: "Saved to backend ✅" });
+
+    // Best-effort refresh of read models so the UI stays consistent.
+    if (typeof refresh === "function") {
+      try {
+        await refresh();
+      } catch {
+        // swallow; never crash UI
+      }
+    }
+  } catch (e) {
+    setLiveSubmitState({ status: "error", message: e?.message || "Unexpected error while saving." });
+  }
+}
   function markCompleted() {
     setState((s) => {
       const next = structuredClone(s);
@@ -521,6 +580,92 @@ export default function App() {
                   </button>
                 </div>
               </div>
+
+
+
+              {/* ---------------------------------------------------------
+                  Phase A (Live Write Path): POST /task-responses
+                  This is a minimal, non-invasive panel so the demo UX stays intact.
+                 --------------------------------------------------------- */}
+              {Array.isArray(tasks) && tasks.length > 0 && (
+                <div className="mt-4 border rounded-2xl p-4 bg-slate-50">
+                  <div className="font-semibold">Live Backend: Save a Task Response</div>
+                  <div className="text-sm text-slate-600 mt-1">
+                    This writes to Supabase via Render (POST /task-responses). It does not change the demo assignment UI yet.
+
+<div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+  <span className={cx("px-2 py-1 rounded-full", loading ? "bg-amber-100 text-amber-800" : error ? "bg-red-100 text-red-800" : hasLiveData ? "bg-green-100 text-green-800" : "bg-slate-100 text-slate-700")}>
+    {loading ? "Loading…" : error ? "Backend error" : hasLiveData ? "Live data connected" : "No live data"}
+  </span>
+  <span className="text-slate-500">
+    Runs: {Array.isArray(auditRuns) ? auditRuns.length : 0} · Tasks: {Array.isArray(tasks) ? tasks.length : 0}
+  </span>
+  {Array.isArray(auditRuns) && auditRuns.length > 0 && (
+    <span className="text-slate-500">
+      Latest run: {(auditRuns[0]?.id || auditRuns[0]?.audit_run_id || "").toString().slice(0, 12) || "—"}
+    </span>
+  )}
+  {error ? <span className="text-red-700">{String(error)}</span> : null}
+  <button
+    className="ml-auto px-2 py-1 rounded-lg border bg-white hover:bg-slate-50"
+    onClick={() => (typeof refresh === "function" ? refresh() : null)}
+    type="button"
+    title="Reload audit runs and tasks from backend"
+  >
+    Refresh
+  </button>
+</div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="md:col-span-1">
+                      <label className="text-xs text-slate-500">Live task</label>
+                      <select
+                        className="mt-1 w-full border rounded-lg px-3 py-2"
+                        value={liveTaskId}
+                        onChange={(e) => setLiveTaskId(e.target.value)}
+                      >
+                        {tasks.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {(t.title || "").slice(0, 50) || t.id}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="text-xs text-slate-500">Response</label>
+                      <input
+                        className="mt-1 w-full border rounded-lg px-3 py-2"
+                        value={liveResponseText}
+                        onChange={(e) => setLiveResponseText(e.target.value)}
+                        placeholder="Type a response to save to the backend…"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-3">
+                    <button
+                      className="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50"
+                      disabled={liveSubmitState.status === "submitting"}
+                      onClick={submitLiveResponse}
+                    >
+                      {liveSubmitState.status === "submitting" ? "Saving…" : "Save Response"}
+                    </button>
+
+                    {liveSubmitState.status !== "idle" && (
+                      <div
+                        className={cx(
+                          "text-sm",
+                          liveSubmitState.status === "success" ? "text-green-700" : liveSubmitState.status === "error" ? "text-red-700" : "text-slate-700"
+                        )}
+                      >
+                        {liveSubmitState.message}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="mt-4 space-y-4">
                 {selected.questions.map((q) => {
